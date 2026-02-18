@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-aegis: #4c6ef5;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+::-webkit-scrollbar-thumb {
+  background: #4c6ef5;
+  border-radius: 3px;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(76, 110, 245, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(76, 110, 245, 0.6); }
+}
+
+.glow-card:hover {
+  animation: pulse-glow 2s infinite;
+}

@@ -1,0 +1,33 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+
+# ── Test / Coverage ──
+.pytest_cache/
+htmlcov/
+.coverage
+test/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Git ──
+.git/
+.gitignore
+
+# ── Docker ──
+Dockerfile
+docker-compose*.yml
+
+# ── OS ──
+.DS_Store
+Thumbs.db

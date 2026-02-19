@@ -152,9 +152,12 @@ async def execute_proxy(
             }
             await set_cached_permission(agent.id, data.service_name, cached_perm)
 
-        # ── 6. Wallet ──
-        can_spend, spend_msg = await WalletService.can_spend(db, agent.id, data.estimated_cost_usd)
-        if not can_spend:
+        # ── 6. Wallet (atomic check + reserve under FOR UPDATE) ──
+        wallet_ok, spend_msg, wallet_tx = await WalletService.reserve_and_charge(
+            db, agent.id, data.estimated_cost_usd,
+            f"{data.action}@{data.service_name}", data.service_name, at,
+        )
+        if not wallet_ok:
             await AuditService.log(
                 agent.id, user.id, at, data.service_name, False,
                 cost_usd=data.estimated_cost_usd, ip_address=ip,
@@ -262,13 +265,11 @@ async def execute_proxy(
         if eph_token:
             await jit_broker.revoke_token(agent.id, eph_token)
 
-        # ── 13. Charge wallet ──
+        # ── 13. Record spend metrics (charge already happened atomically in step 6) ──
         cost = data.estimated_cost_usd
-        if cost > 0:
-            tx = await WalletService.charge(db, agent.id, cost, f"{data.action}@{data.service_name}", data.service_name, at)
-            if tx:
-                await circuit_breaker.record_spend(agent.id, cost)
-                PROXY_COST.inc(cost)
+        if cost > 0 and wallet_tx:
+            await circuit_breaker.record_spend(agent.id, cost)
+            PROXY_COST.inc(cost)
 
         # ── 14–16. Behavior + Trust + Counter (parallel) ──
         post_coros = [

@@ -75,9 +75,18 @@ class IdentityService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def list_agents(db: AsyncSession, sponsor_id: uuid.UUID) -> list[Agent]:
+    async def list_agents(
+        db: AsyncSession,
+        sponsor_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Agent]:
         result = await db.execute(
-            select(Agent).where(Agent.sponsor_id == sponsor_id).order_by(Agent.created_at.desc())
+            select(Agent)
+            .where(Agent.sponsor_id == sponsor_id)
+            .order_by(Agent.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         return list(result.scalars().all())
 

@@ -89,6 +89,14 @@ export interface WSMessage {
   data: Record<string, any>;
 }
 
+export interface LoginResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  mfa_required?: boolean;
+  mfa_token?: string;
+}
+
 export interface ProxyRequest {
   agent_id: string;
   service_name: string;

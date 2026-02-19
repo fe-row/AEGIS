@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.models.entities import HITLRequest, HITLStatus
 from app.config import get_settings
 from app.utils.http_pool import get_http_client
+from app.utils.webhook_signer import sign_payload
 from app.services.alerting import AlertService
 
 settings = get_settings()
@@ -103,9 +104,14 @@ class HITLGateway:
         except Exception:
             return
 
+        # Sign payloads with HMAC-SHA256 for authenticity verification
+        sig_headers = sign_payload(message)
+
         if settings.SLACK_WEBHOOK_URL:
             try:
-                await client.post(settings.SLACK_WEBHOOK_URL, json=message)
+                await client.post(
+                    settings.SLACK_WEBHOOK_URL, json=message, headers=sig_headers,
+                )
             except Exception:
                 pass
 
@@ -115,8 +121,11 @@ class HITLGateway:
                 "summary": "AEGIS HITL Approval",
                 "text": message["text"],
             }
+            teams_sig = sign_payload(teams_msg)
             try:
-                await client.post(settings.TEAMS_WEBHOOK_URL, json=teams_msg)
+                await client.post(
+                    settings.TEAMS_WEBHOOK_URL, json=teams_msg, headers=teams_sig,
+                )
             except Exception:
                 pass
 

@@ -106,6 +106,26 @@ class Settings(BaseSettings):
     PAGERDUTY_ROUTING_KEY: str = ""
     OPSGENIE_API_KEY: str = ""
 
+    # ── Forensic Export (Immutable Audit Storage) ──
+    FORENSIC_STORAGE_BACKEND: str = "local"  # "s3", "gcs", "local", "dry-run"
+    FORENSIC_S3_BUCKET: str = ""
+    FORENSIC_S3_PREFIX: str = "aegis-audit/"
+    FORENSIC_S3_ENDPOINT: str = ""  # Custom S3 endpoint (MinIO, etc.)
+    FORENSIC_S3_ACCESS_KEY: str = ""
+    FORENSIC_S3_SECRET_KEY: str = ""
+    FORENSIC_S3_REGION: str = "us-east-1"
+    FORENSIC_RETENTION_DAYS: int = 2555  # ~7 years (SOC2/GDPR)
+    FORENSIC_TSA_URL: str = ""  # RFC 3161 TSA server URL (e.g. http://timestamp.digicert.com)
+    FORENSIC_LOCAL_PATH: str = "/tmp/aegis-forensic-exports"
+    FORENSIC_AUTO_EXPORT_INTERVAL_HOURS: int = 24
+
+    # ── Webhook Security ──
+    WEBHOOK_HMAC_SECRET: str = ""  # HMAC-SHA256 key for signing outgoing webhooks
+    SECRET_ROTATION_WEBHOOK_URL: str = ""  # External webhook for custom rotation strategies
+
+    # ── Secret Rotation ──
+    SECRET_ROTATION_CHECK_INTERVAL_HOURS: int = 1  # How often to check for overdue rotations
+
     # ── Secrets Management ──
     SECRETS_PROVIDER: str = "env"  # "env", "vault", "aws"
     VAULT_ADDR: str = "http://127.0.0.1:8200"
@@ -121,9 +141,21 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
+_INSECURE_JWT_DEFAULTS = {
+    "change-me-in-production-2024",
+    "CHANGEME-insecure-default-jwt-secret",
+}
+
+
 @lru_cache()
 def get_settings() -> Settings:
     s = Settings()
+    # SECURITY: Refuse to start in production with a default JWT secret
+    if s.ENVIRONMENT == "production" and s.JWT_SECRET in _INSECURE_JWT_DEFAULTS:
+        raise RuntimeError(
+            "FATAL: JWT_SECRET is set to an insecure default. "
+            "Set a strong, unique JWT_SECRET environment variable before running in production."
+        )
     # Auto-generate RSA keys for development if RS256 is configured but no keys provided
     if s.JWT_ALGORITHM.startswith("RS") and not s.JWT_PRIVATE_KEY:
         import warnings

@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.database import get_db
@@ -30,10 +30,12 @@ async def create_agent(
 
 @router.get("/", response_model=list[AgentOut])
 async def list_agents(
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("agents:read")),
 ):
-    return await IdentityService.list_agents(db, user.id)
+    return await IdentityService.list_agents(db, user.id, limit=limit, offset=offset)
 
 
 @router.get("/{agent_id}", response_model=AgentDetail)
@@ -131,6 +133,8 @@ async def add_permission(
 @router.get("/{agent_id}/permissions", response_model=list[PermissionOut])
 async def list_permissions(
     agent_id: uuid.UUID,
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("agents:read")),
 ):
@@ -139,7 +143,11 @@ async def list_permissions(
         raise HTTPException(status_code=404)
 
     result = await db.execute(
-        select(AgentPermission).where(AgentPermission.agent_id == agent_id)
+        select(AgentPermission)
+        .where(AgentPermission.agent_id == agent_id)
+        .order_by(AgentPermission.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return list(result.scalars().all())
 

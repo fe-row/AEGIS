@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import DashboardLayout from "@/components/DashboardLayout";
 import AuditTable from "@/components/AuditTable";
 import { getAuditLogs, verifyAuditChain, getAgents } from "@/lib/api";
 import type { AuditEntry, Agent } from "@/lib/types";
@@ -58,10 +57,7 @@ export default function AuditPage() {
   }, [fetchLogs]);
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <ErrorBoundary>
+    <DashboardLayout>
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-bold text-white">Forensic Audit Log</h1>
@@ -122,8 +118,6 @@ export default function AuditPage() {
           </div>
 
           <AuditTable logs={logs} />
-        </ErrorBoundary>
-      </main>
-    </div>
+    </DashboardLayout>
   );
 }

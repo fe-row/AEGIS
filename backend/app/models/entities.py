@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Float, Boolean, DateTime, Text, JSON,
     ForeignKey, Integer, Enum as SAEnum, Index, BigInteger,
+    LargeBinary, Numeric,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -214,11 +215,11 @@ class MicroWallet(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False, unique=True)
-    balance_usd = Column(Float, default=0.0)
-    daily_limit_usd = Column(Float, default=10.0)
-    monthly_limit_usd = Column(Float, default=200.0)
-    spent_today_usd = Column(Float, default=0.0)
-    spent_this_month_usd = Column(Float, default=0.0)
+    balance_usd = Column(Numeric(12, 6), default=0.0)
+    daily_limit_usd = Column(Numeric(12, 6), default=10.0)
+    monthly_limit_usd = Column(Numeric(12, 6), default=200.0)
+    spent_today_usd = Column(Numeric(12, 6), default=0.0)
+    spent_this_month_usd = Column(Numeric(12, 6), default=0.0)
     last_reset_daily = Column(DateTime(timezone=True), default=utcnow)
     last_reset_monthly = Column(DateTime(timezone=True), default=utcnow)
     is_frozen = Column(Boolean, default=False)
@@ -233,7 +234,7 @@ class WalletTransaction(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     wallet_id = Column(UUID(as_uuid=True), ForeignKey("micro_wallets.id"), nullable=False)
-    amount_usd = Column(Float, nullable=False)
+    amount_usd = Column(Numeric(12, 6), nullable=False)
     description = Column(String(500))
     service_name = Column(String(200))
     action_type = Column(SAEnum(ActionType))
@@ -262,12 +263,14 @@ class AuditLog(Base):
     model_used = Column(String(100))
     permission_granted = Column(Boolean)
     policy_evaluation = Column(JSONB)  # OPA result
-    cost_usd = Column(Float, default=0.0)
+    cost_usd = Column(Numeric(12, 6), default=0.0)
     response_code = Column(Integer)
     ip_address = Column(String(45))
     duration_ms = Column(Integer)
     audit_metadata = Column("metadata", JSONB, default=dict)
     timestamp = Column(DateTime(timezone=True), default=utcnow, index=True)
+    tsa_token = Column(LargeBinary, nullable=True)  # RFC 3161 TSA response
+    exported_at = Column(DateTime(timezone=True), nullable=True)  # Immutable storage export timestamp
 
     agent = relationship("Agent", back_populates="audit_logs")
 
@@ -276,6 +279,23 @@ class AuditLog(Base):
         Index("idx_audit_service", "service_name"),
         Index("idx_audit_sponsor", "sponsor_id"),
     )
+
+
+# ── Immutable Exports (Forensic Archival) ──
+
+class ImmutableExport(Base):
+    __tablename__ = "immutable_exports"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    export_hash = Column(String(128), nullable=False, unique=True)
+    from_id = Column(BigInteger, nullable=False)
+    to_id = Column(BigInteger, nullable=False)
+    record_count = Column(Integer, nullable=False)
+    storage_backend = Column(String(50), nullable=False)  # s3, gcs, azure_blob, local
+    storage_path = Column(String(1000), nullable=False)
+    tsa_token = Column(LargeBinary, nullable=True)  # RFC 3161 TSA batch token
+    exported_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
 # ── HITL Requests ──
@@ -288,7 +308,7 @@ class HITLRequest(Base):
     sponsor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     action_description = Column(Text, nullable=False)
     action_payload = Column(JSONB)
-    estimated_cost_usd = Column(Float, default=0.0)
+    estimated_cost_usd = Column(Numeric(12, 6), default=0.0)
     status = Column(SAEnum(HITLStatus), default=HITLStatus.PENDING)
     decided_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     decision_note = Column(Text)
@@ -314,7 +334,7 @@ class BehaviorProfile(Base):
     typical_services = Column(JSONB, default=list)  # services normally accessed
     typical_hours = Column(JSONB, default=dict)  # hour -> frequency map
     avg_requests_per_hour = Column(Float, default=0.0)
-    avg_cost_per_action = Column(Float, default=0.0)
+    avg_cost_per_action = Column(Numeric(12, 6), default=0.0)
     feature_vector = Column(JSONB, default=list)  # for ML model
     last_updated = Column(DateTime(timezone=True), default=utcnow)
 

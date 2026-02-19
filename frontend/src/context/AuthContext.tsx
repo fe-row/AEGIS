@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getMe, logout } from "@/lib/api";
+import { getMe, logout, hasSession } from "@/lib/api";
 import type { User } from "@/lib/types";
 
 interface AuthState {
@@ -23,10 +23,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Fetch user on mount only
+  // Fetch user on mount — HttpOnly cookie is sent automatically
   useEffect(() => {
-    const token = localStorage.getItem("aegis_token");
-    if (!token) {
+    if (!hasSession()) {
       setLoading(false);
       return;
     }
@@ -43,10 +42,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redirect guard: push to login if no token and not on login page
+  // Redirect guard: push to login if no session and not on login page
   useEffect(() => {
-    const token = localStorage.getItem("aegis_token");
-    if (!token && !loading && pathname !== "/") {
+    if (!hasSession() && !loading && pathname !== "/") {
       router.push("/");
     }
   }, [pathname, router, loading]);

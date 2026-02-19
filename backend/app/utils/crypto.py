@@ -10,6 +10,11 @@ logger = get_logger("crypto")
 
 _fernet_key = settings.ENCRYPTION_KEY
 if not _fernet_key:
+    if settings.ENVIRONMENT == "production":
+        raise RuntimeError(
+            "FATAL: ENCRYPTION_KEY is not set. "
+            "Set a Fernet key via: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
     logger.warning(
         "ENCRYPTION_KEY not set — using ephemeral key. "
         "Encrypted data will be UNRECOVERABLE after restart!"
@@ -47,7 +52,7 @@ def hash_chain(data: str, previous_hash: str) -> str:
 
 def hash_api_key(key: str) -> str:
     """HMAC-SHA256 with server secret — resists rainbow tables if DB leaks."""
-    return hmac.new(
+    return hmac.HMAC(
         settings.JWT_SECRET.encode(), key.encode(), hashlib.sha256
     ).hexdigest()
 

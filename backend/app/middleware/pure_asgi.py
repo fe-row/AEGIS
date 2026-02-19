@@ -2,6 +2,7 @@
 Pure ASGI middleware — FIX: BaseHTTPMiddleware breaks
 StreamingResponse, WebSocket, and has memory issues.
 """
+import hashlib
 import time
 import uuid
 import contextvars
@@ -155,7 +156,8 @@ class RateLimiterASGI:
         # Build identity key
         client_ip = scope.get("client", ("unknown", 0))[0]
         auth = dict(scope.get("headers", [])).get(b"authorization", b"").decode()
-        identity = f"{client_ip}:{hash(auth) % 10000}"
+        auth_hash = hashlib.sha256(auth.encode()).hexdigest()[:12] if auth else "anon"
+        identity = f"{client_ip}:{auth_hash}"
 
         try:
             redis = await get_redis()

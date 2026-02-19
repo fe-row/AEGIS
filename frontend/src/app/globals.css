@@ -6,12 +6,16 @@
   --color-aegis: #4c6ef5;
 }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+/* Selection */
+::selection {
+  background: rgba(76, 110, 245, 0.3);
+  color: #dbe4ff;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: #1a1a2e;
@@ -20,7 +24,18 @@ body {
   background: #4c6ef5;
   border-radius: 3px;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: #3b5bdb;
+}
 
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid rgba(76, 110, 245, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Glow card hover */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 8px rgba(76, 110, 245, 0.3); }
   50% { box-shadow: 0 0 20px rgba(76, 110, 245, 0.6); }
@@ -28,4 +43,20 @@ body {
 
 .glow-card:hover {
   animation: pulse-glow 2s infinite;
+}
+
+/* Skeleton loading shimmer */
+@layer utilities {
+  .skeleton {
+    background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+}
+
+/* Smooth page transitions */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
 }

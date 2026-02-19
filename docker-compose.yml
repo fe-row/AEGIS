@@ -57,6 +57,11 @@ services:
       - "/policies"
     volumes:
       - ./policies:/policies
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
     deploy:
       resources:
@@ -115,7 +120,7 @@ services:
       redis:
         condition: service_healthy
       opa:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:

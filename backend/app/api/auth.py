@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -400,9 +400,18 @@ async def create_api_key_endpoint(
 
 
 @router.get("/api-keys", response_model=list[APIKeyOut])
-async def list_api_keys(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_api_keys(
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = await db.execute(
-        select(UserAPIKey).where(UserAPIKey.user_id == user.id).order_by(UserAPIKey.created_at.desc())
+        select(UserAPIKey)
+        .where(UserAPIKey.user_id == user.id)
+        .order_by(UserAPIKey.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return list(result.scalars().all())
 

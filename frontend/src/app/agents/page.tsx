@@ -1,27 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import Sidebar from "@/components/Sidebar";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useEffect, useState, useMemo } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
 import AgentCard from "@/components/AgentCard";
+import AgentDetailPanel from "@/components/AgentDetailPanel";
+import Modal from "@/components/Modal";
+import { useToast } from "@/components/Toast";
 import { getAgents, createAgent, suspendAgent, activateAgent } from "@/lib/api";
 import type { Agent } from "@/lib/types";
-import { Plus, X } from "lucide-react";
+import { Plus, Search, Bot, Loader2 } from "lucide-react";
 
 export default function AgentsPage() {
-  const router = useRouter();
+  const { toast } = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", agent_type: "general" });
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // Search & filter
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const filteredAgents = useMemo(() => {
+    return agents.filter((a) => {
+      const matchesSearch = !search ||
+        a.name.toLowerCase().includes(search.toLowerCase()) ||
+        a.agent_type.toLowerCase().includes(search.toLowerCase()) ||
+        a.description?.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus = statusFilter === "all" || a.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [agents, search, statusFilter]);
 
   const fetchAgents = async () => {
     try {
       const data = await getAgents();
       setAgents(data);
     } catch (err) {
-      console.error(err);
+      toast("Failed to load agents", "error");
+    } finally {
+      setInitialLoading(false);
     }
   };
 
@@ -32,35 +52,46 @@ export default function AgentsPage() {
     setLoading(true);
     try {
       await createAgent(form);
+      toast(`Agent "${form.name}" registered successfully`, "success");
       setShowCreate(false);
       setForm({ name: "", description: "", agent_type: "general" });
       fetchAgents();
     } catch (err) {
-      console.error(err);
+      toast(err instanceof Error ? err.message : "Failed to create agent", "error");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSuspend = async (id: string) => {
-    await suspendAgent(id);
-    fetchAgents();
+    try {
+      await suspendAgent(id);
+      toast("Agent suspended", "warning");
+      fetchAgents();
+    } catch (err) {
+      toast("Failed to suspend agent", "error");
+    }
   };
 
   const handleActivate = async (id: string) => {
-    await activateAgent(id);
-    fetchAgents();
+    try {
+      await activateAgent(id);
+      toast("Agent activated", "success");
+      fetchAgents();
+    } catch (err) {
+      toast("Failed to activate agent", "error");
+    }
   };
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <ErrorBoundary>
-          <div className="flex items-center justify-between mb-8">
+    <DashboardLayout>
+          <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-2xl font-bold text-white">Agent Registry</h1>
-              <p className="text-sm text-gray-500 mt-1">Manage non-human identities</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Manage non-human identities
+                {agents.length > 0 && <span className="text-gray-600 ml-1">({agents.length} total)</span>}
+              </p>
             </div>
             <button
               onClick={() => setShowCreate(true)}
@@ -71,36 +102,80 @@ export default function AgentsPage() {
             </button>
           </div>
 
-          {/* Agent Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {agents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                onSuspend={handleSuspend}
-                onActivate={handleActivate}
-                onClick={(id) => router.push(`/agents?detail=${id}`)}
+          {/* Search & Filter Bar */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="relative flex-1 max-w-sm">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search agents..."
+                className="w-full bg-gray-800/60 border border-gray-700 rounded-lg pl-9 pr-4 py-2 text-sm
+                         text-gray-300 focus:outline-none focus:border-aegis-500 transition placeholder:text-gray-600"
               />
-            ))}
-            {agents.length === 0 && (
-              <div className="col-span-full text-center py-16 text-gray-600">
-                <p className="text-lg mb-2">No agents registered yet</p>
-                <p className="text-sm">Click "Register Agent" to create your first NHI</p>
-              </div>
-            )}
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300
+                       focus:outline-none focus:border-aegis-500 transition"
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="revoked">Revoked</option>
+              <option value="panic">Panic</option>
+            </select>
           </div>
 
-          {/* Create Modal */}
-          {showCreate && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-lg font-bold text-white">Register New Agent</h2>
-                  <button onClick={() => setShowCreate(false)} className="text-gray-500 hover:text-gray-300">
-                    <X size={20} />
-                  </button>
+          {/* Agent Grid */}
+          {initialLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <Loader2 className="w-8 h-8 text-aegis-500 animate-spin" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredAgents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  onSuspend={handleSuspend}
+                  onActivate={handleActivate}
+                  onClick={(id) => setSelectedAgentId(id)}
+                />
+              ))}
+              {filteredAgents.length === 0 && agents.length > 0 && (
+                <div className="col-span-full text-center py-16 text-gray-600">
+                  <Search size={32} className="mx-auto mb-3 text-gray-700" />
+                  <p className="text-sm">No agents match your search</p>
                 </div>
+              )}
+              {agents.length === 0 && (
+                <div className="col-span-full text-center py-16 text-gray-600">
+                  <Bot size={40} className="mx-auto mb-3 text-gray-700" />
+                  <p className="text-lg mb-2">No agents registered yet</p>
+                  <p className="text-sm">Click "Register Agent" to create your first NHI</p>
+                </div>
+              )}
+            </div>
+          )}
 
+          {/* Agent Detail Slide-over */}
+          {selectedAgentId && (
+            <AgentDetailPanel
+              agentId={selectedAgentId}
+              onClose={() => setSelectedAgentId(null)}
+            />
+          )}
+
+          {/* Create Modal */}
+          <Modal
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+            title="Register New Agent"
+            icon={<div className="w-10 h-10 rounded-xl bg-aegis-600/20 border border-aegis-500/30 flex items-center justify-center"><Bot size={18} className="text-aegis-400" /></div>}
+          >
                 <form onSubmit={handleCreate} className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">Agent Name</label>
@@ -151,11 +226,7 @@ export default function AgentsPage() {
                     {loading ? "Creating..." : "Register Agent"}
                   </button>
                 </form>
-              </div>
-            </div>
-          )}
-        </ErrorBoundary>
-      </main>
-    </div>
+          </Modal>
+    </DashboardLayout>
   );
 }

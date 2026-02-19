@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import DashboardLayout from "@/components/DashboardLayout";
+import { useToast } from "@/components/Toast";
 import {
   getAgents, getPermissions, addPermission, getPendingHITL, decideHITL,
 } from "@/lib/api";
@@ -10,6 +10,7 @@ import type { Agent, Permission, HITLItem } from "@/lib/types";
 import { Plus, X, CheckCircle, XCircle, Clock, Shield, Loader2 } from "lucide-react";
 
 export default function PoliciesPage() {
+  const { toast } = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -53,24 +54,31 @@ export default function PoliciesPage() {
   const handleAddPermission = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAgent) return;
-    await addPermission(selectedAgent, {
-      ...permForm,
-      allowed_actions: permForm.allowed_actions.split(",").map((s) => s.trim()),
-    });
-    setShowAddPerm(false);
-    fetchPermissions(selectedAgent);
+    try {
+      await addPermission(selectedAgent, {
+        ...permForm,
+        allowed_actions: permForm.allowed_actions.split(",").map((s) => s.trim()),
+      });
+      toast("Permission rule added", "success");
+      setShowAddPerm(false);
+      fetchPermissions(selectedAgent);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to add permission", "error");
+    }
   };
 
   const handleHITLDecide = async (id: string, approved: boolean) => {
-    await decideHITL(id, approved);
-    fetchData();
+    try {
+      await decideHITL(id, approved);
+      toast(approved ? "Request approved" : "Request rejected", approved ? "success" : "warning");
+      fetchData();
+    } catch (err) {
+      toast("Failed to process decision", "error");
+    }
   };
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <ErrorBoundary>
+    <DashboardLayout>
           <h1 className="text-2xl font-bold text-white mb-2">Policy Management</h1>
           <p className="text-sm text-gray-500 mb-8">Agent permissions and human-in-the-loop approvals</p>
 
@@ -255,8 +263,6 @@ export default function PoliciesPage() {
               </div>
             </div>
           )}
-        </ErrorBoundary>
-      </main>
-    </div>
+    </DashboardLayout>
   );
 }

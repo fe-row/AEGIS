@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import DashboardLayout from "@/components/DashboardLayout";
+import { useToast } from "@/components/Toast";
 import { getAgents, getWallet, topUpWallet, freezeWallet } from "@/lib/api";
 import type { Agent, Wallet } from "@/lib/types";
 import { Wallet as WalletIcon, Snowflake, Plus, Loader2 } from "lucide-react";
 
 export default function WalletsPage() {
+  const { toast } = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [wallets, setWallets] = useState<Record<string, Wallet>>({});
   const [topUpAgent, setTopUpAgent] = useState<string | null>(null);
@@ -38,28 +39,31 @@ export default function WalletsPage() {
     if (!topUpAgent || !topUpAmount) return;
     try {
       await topUpWallet(topUpAgent, parseFloat(topUpAmount));
+      toast(`Wallet topped up with $${topUpAmount}`, "success");
       setTopUpAgent(null);
       setTopUpAmount("");
       fetchData();
     } catch (err) {
-      console.error(err);
+      toast(err instanceof Error ? err.message : "Failed to top up wallet", "error");
     }
   };
 
   const handleFreeze = async (agentId: string) => {
     if (confirm("Freeze this wallet? The agent will not be able to spend.")) {
-      await freezeWallet(agentId);
-      fetchData();
+      try {
+        await freezeWallet(agentId);
+        toast("Wallet frozen", "warning");
+        fetchData();
+      } catch (err) {
+        toast("Failed to freeze wallet", "error");
+      }
     }
   };
 
   const agentsWithWallets = agents.filter((a) => wallets[a.id]);
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <ErrorBoundary>
+    <DashboardLayout>
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">Micro-Wallets</h1>
             <p className="text-sm text-gray-500 mt-1">Per-agent financial controls and FinOps</p>
@@ -181,8 +185,6 @@ export default function WalletsPage() {
               </div>
             </div>
           )}
-        </ErrorBoundary>
-      </main>
-    </div>
+    </DashboardLayout>
   );
 }

@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
+import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import DashboardLayout from "@/components/DashboardLayout";
 import SpendChart from "@/components/SpendChart";
 import StatCard from "@/components/StatCard";
 import HITLModal from "@/components/HITLModal";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { StatGridSkeleton, ChartSkeleton } from "@/components/Skeleton";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/context/AuthContext";
-import { getDashboardStats, getPendingHITL } from "@/lib/api";
-import type { DashboardStats, HITLItem, WSMessage } from "@/lib/types";
+import { useDashboardStats, usePendingHITL, queryKeys } from "@/hooks/useQueries";
+import type { WSMessage } from "@/lib/types";
 import {
   Bot, ShieldCheck, ShieldOff, Activity, Ban,
   DollarSign, TrendingUp, Bell, Wifi, WifiOff,
@@ -17,48 +18,39 @@ import {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [hitlItems, setHitlItems] = useState<HITLItem[]>([]);
+  const queryClient = useQueryClient();
   const [showHITL, setShowHITL] = useState(false);
   const [alerts, setAlerts] = useState<string[]>([]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [s, h] = await Promise.all([getDashboardStats(), getPendingHITL()]);
-      setStats(s);
-      setHitlItems(h);
-    } catch (err) {
-      console.error("Dashboard fetch error:", err);
-    }
-  }, []);
+  const { data: stats, isLoading: statsLoading } = useDashboardStats();
+  const { data: hitlItems = [] } = usePendingHITL();
+
+  const invalidateDashboard = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+    queryClient.invalidateQueries({ queryKey: queryKeys.hitl });
+  }, [queryClient]);
 
   // WebSocket for real-time updates
   const handleWSMessage = useCallback((msg: WSMessage) => {
     switch (msg.event) {
       case "hitl_required":
         setAlerts((prev) => [...prev.slice(-4), `🔔 HITL required: ${msg.data.description}`]);
-        fetchData();
+        invalidateDashboard();
         break;
       case "anomaly_detected":
         setAlerts((prev) => [...prev.slice(-4), `⚠️ Anomaly on agent ${msg.data.agent_id?.slice(0, 8)}`]);
         break;
       case "circuit_breaker":
         setAlerts((prev) => [...prev.slice(-4), `🚨 Circuit breaker: ${msg.data.status}`]);
-        fetchData();
+        invalidateDashboard();
         break;
       case "hitl_decided":
-        fetchData();
+        invalidateDashboard();
         break;
     }
-  }, [fetchData]);
+  }, [invalidateDashboard]);
 
   const { connected } = useWebSocket(handleWSMessage);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, connected ? 60000 : 15000);
-    return () => clearInterval(interval);
-  }, [fetchData, connected]);
 
   const cards = stats
     ? [
@@ -74,10 +66,7 @@ export default function DashboardPage() {
     : [];
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <ErrorBoundary>
+    <DashboardLayout>
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -126,15 +115,19 @@ export default function DashboardPage() {
           )}
 
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {cards.map((card) => (
-              <StatCard key={card.label} {...card} />
-            ))}
-          </div>
+          {!stats ? (
+            <div className="mb-8"><StatGridSkeleton /></div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {cards.map((card) => (
+                <StatCard key={card.label} {...card} />
+              ))}
+            </div>
+          )}
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <SpendChart data={stats?.hourly_spend || []} />
+            {!stats ? <ChartSkeleton /> : <SpendChart data={stats.hourly_spend || []} />}
 
             {/* Top Services */}
             <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
@@ -159,12 +152,10 @@ export default function DashboardPage() {
           {showHITL && (
             <HITLModal
               items={hitlItems}
-              onDecided={() => { fetchData(); setShowHITL(false); }}
+              onDecided={() => { invalidateDashboard(); setShowHITL(false); }}
               onClose={() => setShowHITL(false)}
             />
           )}
-        </ErrorBoundary>
-      </main>
-    </div>
+    </DashboardLayout>
   );
 }

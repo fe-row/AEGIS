@@ -1,85 +1,73 @@
-import type { DashboardStats, Agent, Wallet, Permission, AuditEntry, HITLItem, User, ProxyRequest, ProxyResponse } from "./types";
+import type { DashboardStats, Agent, Wallet, Permission, AuditEntry, HITLItem, User, ProxyRequest, ProxyResponse, LoginResponse } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API = `${API_BASE}/api/v1`;
 
-// ── Token management ──
+// ── Session management ──
+// SECURITY: Tokens are stored in HttpOnly cookies (set by the backend).
+// JavaScript never touches raw tokens. We only track a session flag for UI state.
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("aegis_token");
+const SESSION_FLAG = "aegis_session";
+
+function markSessionActive() {
+  if (typeof window !== "undefined") sessionStorage.setItem(SESSION_FLAG, "1");
 }
 
-function getRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("aegis_refresh_token");
+function clearSession() {
+  if (typeof window !== "undefined") sessionStorage.removeItem(SESSION_FLAG);
 }
 
-function saveTokens(access: string, refresh: string) {
-  localStorage.setItem("aegis_token", access);
-  localStorage.setItem("aegis_refresh_token", refresh);
+export function hasSession(): boolean {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(SESSION_FLAG) === "1";
 }
 
 export async function logout() {
-  // Invalidate token server-side (fire-and-forget)
-  const token = localStorage.getItem("aegis_token");
-  if (token) {
-    fetch(`${API}/auth/logout`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      credentials: "include",  // Include cookies for logout
-    }).catch(() => { });
-  }
-  localStorage.removeItem("aegis_token");
-  localStorage.removeItem("aegis_refresh_token");
+  // Invalidate token server-side — cookie is sent automatically
+  fetch(`${API}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  }).catch(() => { });
+  clearSession();
   window.location.href = "/";
 }
 
 // ── Request wrapper with auto-refresh ──
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const doRequest = async (token: string | null) => {
+  const doRequest = async () => {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string> || {}),
     };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
     return fetch(`${API}${path}`, { ...options, headers, credentials: "include" });
   };
 
-  let res = await doRequest(getToken());
+  let res = await doRequest();
 
-  // Auto-refresh on 401
-  if (res.status === 401) {
-    const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      try {
-        const refreshRes = await fetch(`${API}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",  // Send refresh token cookie
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
+  // Auto-refresh on 401 via HttpOnly refresh cookie
+  if (res.status === 401 && hasSession()) {
+    try {
+      const refreshRes = await fetch(`${API}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
 
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          saveTokens(data.access_token, data.refresh_token);
-          res = await doRequest(data.access_token);
-        } else {
-          logout();
-          throw new Error("Session expired");
-        }
-      } catch {
+      if (refreshRes.ok) {
+        res = await doRequest();
+      } else {
         logout();
         throw new Error("Session expired");
       }
-    } else {
+    } catch {
       logout();
-      throw new Error("Not authenticated");
+      throw new Error("Session expired");
     }
+  } else if (res.status === 401) {
+    logout();
+    throw new Error("Not authenticated");
   }
 
   if (!res.ok) {
@@ -91,12 +79,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // ── Auth ──
 
-export async function login(email: string, password: string) {
-  const data = await request<{ access_token: string; refresh_token: string; expires_in: number }>(
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const data = await request<LoginResponse>(
     "/auth/login",
     { method: "POST", body: JSON.stringify({ email, password }) }
   );
-  saveTokens(data.access_token, data.refresh_token);
+  // Backend sets HttpOnly cookies; we only mark session active for UI state
+  if (!data.mfa_required) {
+    markSessionActive();
+  }
+  return data;
+}
+
+export async function submitMfaCode(mfaToken: string, code: string): Promise<LoginResponse> {
+  const data = await request<LoginResponse>(
+    "/auth/mfa/challenge",
+    { method: "POST", body: JSON.stringify({ mfa_token: mfaToken, code }) }
+  );
+  markSessionActive();
   return data;
 }
 

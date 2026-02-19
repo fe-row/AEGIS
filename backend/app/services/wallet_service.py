@@ -45,6 +45,46 @@ class WalletService:
         return True, "OK"
 
     @staticmethod
+    async def reserve_and_charge(
+        db: AsyncSession,
+        agent_id: uuid.UUID,
+        amount: float,
+        description: str,
+        service_name: str,
+        action_type: ActionType,
+    ) -> tuple[bool, str, WalletTransaction | None]:
+        """Atomic check + charge under FOR UPDATE to prevent race conditions."""
+        wallet = await WalletService.get_wallet(db, agent_id, for_update=True)
+        if not wallet:
+            return False, "No wallet found", None
+        if wallet.is_frozen:
+            return False, "Wallet is frozen", None
+
+        await WalletService.check_and_reset_periods(db, wallet)
+
+        if wallet.balance_usd < amount:
+            return False, f"Insufficient balance: {wallet.balance_usd:.4f} < {amount:.4f}", None
+        if wallet.spent_today_usd + amount > wallet.daily_limit_usd:
+            return False, f"Daily limit exceeded: {wallet.spent_today_usd:.2f} + {amount:.2f} > {wallet.daily_limit_usd:.2f}", None
+        if wallet.spent_this_month_usd + amount > wallet.monthly_limit_usd:
+            return False, "Monthly limit exceeded", None
+
+        wallet.balance_usd -= amount
+        wallet.spent_today_usd += amount
+        wallet.spent_this_month_usd += amount
+
+        tx = WalletTransaction(
+            wallet_id=wallet.id,
+            amount_usd=-amount,
+            description=description,
+            service_name=service_name,
+            action_type=action_type,
+        )
+        db.add(tx)
+        await db.commit()
+        return True, "OK", tx
+
+    @staticmethod
     async def charge(
         db: AsyncSession,
         agent_id: uuid.UUID,

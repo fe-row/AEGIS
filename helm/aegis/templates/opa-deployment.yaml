@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aegis.fullname" . }}-opa
+  labels:
+    {{- include "aegis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aegis.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: opa
+  template:
+    metadata:
+      labels:
+        {{- include "aegis.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: opa
+    spec:
+      containers:
+        - name: opa
+          image: {{ .Values.opa.image }}
+          args:
+            - run
+            - --server
+            - --addr=0.0.0.0:8181
+            - --log-level=info
+            - /policies
+          ports:
+            - containerPort: 8181
+          resources:
+            {{- toYaml .Values.opa.resources | nindent 12 }}
+          volumeMounts:
+            - name: policies
+              mountPath: /policies
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            initialDelaySeconds: 5
+            periodSeconds: 15
+      volumes:
+        - name: policies
+          configMap:
+            name: {{ include "aegis.fullname" . }}-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aegis.fullname" . }}-opa
+  labels:
+    {{- include "aegis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8181
+      targetPort: 8181
+  selector:
+    {{- include "aegis.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: opa

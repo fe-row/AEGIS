@@ -1,5 +1,6 @@
 """Dashboard v4 — FIX: all queries run concurrently with asyncio.gather."""
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,19 +9,33 @@ from app.models.database import get_db, AsyncSessionLocal
 from app.models.entities import User, Agent, AgentStatus, AuditLog, HITLRequest, HITLStatus
 from app.schemas.schemas import DashboardStats
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
+from app.utils.redis_client import get_redis
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+DASH_CACHE_TTL = 10  # seconds
 
 
 @router.get("/stats", response_model=DashboardStats)
 async def get_stats(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("dashboard:read")),
 ):
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(hours=24)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     sid = user.id
+
+    # Check Redis cache first
+    cache_key = f"dash:{sid}"
+    try:
+        redis = await get_redis()
+        cached = await redis.get(cache_key)
+        if cached:
+            return DashboardStats(**json.loads(cached))
+    except Exception:
+        pass  # Fall through to DB queries if Redis is down
 
     # Run all queries concurrently using separate sessions
     async def q_agents():
@@ -102,7 +117,7 @@ async def get_stats(
         for h in range(24)
     ]
 
-    return DashboardStats(
+    result = DashboardStats(
         total_agents=total,
         active_agents=active,
         suspended_agents=total - active,
@@ -116,3 +131,11 @@ async def get_stats(
         hourly_spend=hourly_spend,
         top_services=services_r,
     )
+
+    # Cache result in Redis
+    try:
+        await redis.setex(cache_key, DASH_CACHE_TTL, result.model_dump_json())
+    except Exception:
+        pass  # Non-critical: skip caching if Redis is down
+
+    return result

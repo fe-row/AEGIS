@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import secrets
 from cryptography.fernet import Fernet
 from app.config import get_settings
@@ -45,7 +46,10 @@ def hash_chain(data: str, previous_hash: str) -> str:
 
 
 def hash_api_key(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()
+    """HMAC-SHA256 with server secret — resists rainbow tables if DB leaks."""
+    return hmac.new(
+        settings.JWT_SECRET.encode(), key.encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def generate_api_key() -> tuple[str, str]:

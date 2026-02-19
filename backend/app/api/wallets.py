@@ -7,6 +7,7 @@ from app.schemas.schemas import WalletOut, WalletTopUp, WalletConfig
 from app.services.wallet_service import WalletService
 from app.services.identity_service import IdentityService
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/wallets", tags=["Wallets"])
 async def get_wallet(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("wallets:read")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -31,7 +32,7 @@ async def top_up_wallet(
     agent_id: uuid.UUID,
     data: WalletTopUp,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("wallets:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -45,7 +46,7 @@ async def configure_wallet(
     agent_id: uuid.UUID,
     data: WalletConfig,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("wallets:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -64,7 +65,7 @@ async def configure_wallet(
 async def freeze_wallet(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("wallets:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:

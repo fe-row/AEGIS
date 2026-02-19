@@ -2,15 +2,7 @@
 
 import { Bot, Pause, Play, AlertTriangle } from "lucide-react";
 import TrustGauge from "./TrustGauge";
-
-interface Agent {
-  id: string;
-  name: string;
-  agent_type: string;
-  status: string;
-  trust_score: number;
-  identity_fingerprint: string;
-}
+import type { Agent } from "@/lib/types";
 
 interface Props {
   agent: Agent;

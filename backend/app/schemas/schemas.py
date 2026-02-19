@@ -1,17 +1,38 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 from uuid import UUID
-from app.models.entities import AgentStatus, ActionType, HITLStatus
+import re
+from app.models.entities import AgentStatus, ActionType, HITLStatus, UserRole
+
+
+# ── Helpers ──
+
+def _validate_password_complexity(v: str) -> str:
+    """Shared password complexity rules for registration and password change."""
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r"\d", v):
+        raise ValueError("Password must contain at least one digit")
+    if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?`~]", v):
+        raise ValueError("Password must contain at least one special character")
+    return v
 
 
 # ── Auth ──
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=128)
     full_name: str
     organization: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class UserLogin(BaseModel):
@@ -35,7 +56,10 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     organization: Optional[str]
+    role: UserRole
     is_active: bool
+    mfa_enabled: bool = False
+    sso_provider: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -69,6 +93,16 @@ class APIKeyOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 # ── Agents ──
@@ -241,3 +275,69 @@ class TrustScoreUpdate(BaseModel):
     agent_id: UUID
     new_score: float
     reason: str
+
+
+# ── RBAC ──
+
+class RoleCreate(BaseModel):
+    name: str = Field(max_length=100)
+    description: str = ""
+    permissions: List[str] = []
+
+
+class RoleOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    permissions: List[str]
+    is_system: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleAssign(BaseModel):
+    user_id: UUID
+    role_id: UUID
+
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+
+# ── MFA ──
+
+class MFASetupResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+    backup_codes: List[str]
+
+
+class MFAVerifyRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
+class MFAChallengeRequest(BaseModel):
+    email: str
+    mfa_token: str
+    code: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str = ""
+    refresh_token: str = ""
+    token_type: str = "bearer"
+    expires_in: int = 0
+    mfa_required: bool = False
+    mfa_token: str = ""
+
+
+# ── SSO ──
+
+class SSOAuthorizeResponse(BaseModel):
+    authorize_url: str
+
+
+class SSOCallbackRequest(BaseModel):
+    code: str
+    state: str

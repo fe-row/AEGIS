@@ -17,6 +17,15 @@ def utcnow():
 
 # ── Enums ──
 
+class UserRole(str, enum.Enum):
+    OWNER = "owner"
+    ADMIN = "admin"
+    SECURITY_MANAGER = "security_manager"
+    FINANCE_AUDITOR = "finance_auditor"
+    AGENT_DEVELOPER = "agent_developer"
+    VIEWER = "viewer"
+
+
 class AgentStatus(str, enum.Enum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
@@ -47,16 +56,28 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(320), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Nullable for SSO-only users
     full_name = Column(String(200), nullable=False)
     organization = Column(String(200))
+    role = Column(SAEnum(UserRole), default=UserRole.VIEWER, nullable=False)
     is_active = Column(Boolean, default=True)
     is_superadmin = Column(Boolean, default=False)
+
+    # ── MFA ──
+    mfa_enabled = Column(Boolean, default=False)
+    mfa_secret = Column(Text, nullable=True)  # Encrypted TOTP secret
+    mfa_backup_codes = Column(JSONB, default=list)  # Hashed backup codes
+
+    # ── SSO ──
+    sso_provider = Column(String(50), nullable=True)  # "okta", "azure_ad", "google"
+    sso_subject_id = Column(String(255), nullable=True)  # IdP subject identifier
+
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     agents = relationship("Agent", back_populates="sponsor")
     api_keys = relationship("UserAPIKey", back_populates="user")
+    role_assignments = relationship("UserRoleAssignment", back_populates="user")
 
 
 class UserAPIKey(Base):
@@ -74,6 +95,38 @@ class UserAPIKey(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="api_keys")
+
+
+# ── Custom Roles ──
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, default="")
+    permissions = Column(JSONB, default=list)  # ["agents:read", "wallets:write", ...]
+    is_system = Column(Boolean, default=False)  # True for built-in roles
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    assignments = relationship("UserRoleAssignment", back_populates="role")
+
+
+class UserRoleAssignment(Base):
+    __tablename__ = "user_role_assignments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False)
+    assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), default=utcnow)
+
+    user = relationship("User", back_populates="role_assignments", foreign_keys=[user_id])
+    role = relationship("Role", back_populates="assignments")
+
+    __table_args__ = (
+        Index("idx_ura_user_role", "user_id", "role_id", unique=True),
+    )
 
 
 # ── Agent (Non-Human Identity) ──
@@ -247,6 +300,7 @@ class HITLRequest(Base):
         Index("idx_hitl_status", "status"),
         Index("idx_hitl_agent", "agent_id"),
         Index("idx_hitl_sponsor", "sponsor_id"),
+        Index("idx_hitl_sponsor_status", "sponsor_id", "status"),
     )
 
 

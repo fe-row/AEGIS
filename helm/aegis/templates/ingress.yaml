@@ -1,0 +1,62 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "aegis.fullname" . }}
+  labels:
+    {{- include "aegis.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.global.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.global.domain }}
+      http:
+        paths:
+          # API routes → backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aegis.fullname" . }}-backend
+                port:
+                  number: 8000
+          # WebSocket → backend
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aegis.fullname" . }}-backend
+                port:
+                  number: 8000
+          # Health check → backend
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "aegis.fullname" . }}-backend
+                port:
+                  number: 8000
+          # Metrics → backend (should be restricted via NetworkPolicy)
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "aegis.fullname" . }}-backend
+                port:
+                  number: 8000
+          # Everything else → frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aegis.fullname" . }}-frontend
+                port:
+                  number: 3000
+{{- end }}

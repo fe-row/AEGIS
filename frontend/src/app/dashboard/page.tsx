@@ -56,21 +56,21 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000);
+    const interval = setInterval(fetchData, connected ? 60000 : 15000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, connected]);
 
   const cards = stats
     ? [
-        { label: "Total Agents", value: stats.total_agents, icon: Bot, color: "text-aegis-500" },
-        { label: "Active", value: stats.active_agents, icon: ShieldCheck, color: "text-green-400" },
-        { label: "Suspended", value: stats.suspended_agents, icon: ShieldOff, color: "text-yellow-400" },
-        { label: "Requests (24h)", value: stats.total_requests_24h.toLocaleString(), icon: Activity, color: "text-blue-400" },
-        { label: "Blocked (24h)", value: stats.total_blocked_24h, icon: Ban, color: "text-red-400" },
-        { label: "Spend (24h)", value: `$${stats.total_spend_24h.toFixed(2)}`, icon: DollarSign, color: "text-emerald-400" },
-        { label: "Spend (Month)", value: `$${stats.total_spend_month.toFixed(2)}`, icon: TrendingUp, color: "text-purple-400" },
-        { label: "Avg Trust", value: stats.avg_trust_score.toFixed(1), icon: ShieldCheck, color: "text-cyan-400" },
-      ]
+      { label: "Total Agents", value: stats.total_agents, icon: Bot, color: "text-aegis-500" },
+      { label: "Active", value: stats.active_agents, icon: ShieldCheck, color: "text-green-400" },
+      { label: "Suspended", value: stats.suspended_agents, icon: ShieldOff, color: "text-yellow-400" },
+      { label: "Requests (24h)", value: stats.total_requests_24h.toLocaleString(), icon: Activity, color: "text-blue-400" },
+      { label: "Blocked (24h)", value: stats.total_blocked_24h, icon: Ban, color: "text-red-400" },
+      { label: "Spend (24h)", value: `$${stats.total_spend_24h.toFixed(2)}`, icon: DollarSign, color: "text-emerald-400" },
+      { label: "Spend (Month)", value: `$${stats.total_spend_month.toFixed(2)}`, icon: TrendingUp, color: "text-purple-400" },
+      { label: "Avg Trust", value: stats.avg_trust_score.toFixed(1), icon: ShieldCheck, color: "text-cyan-400" },
+    ]
     : [];
 
   return (
@@ -88,11 +88,10 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-3">
               {/* WS status */}
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-medium border ${
-                connected
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-medium border ${connected
                   ? "bg-green-500/10 border-green-500/20 text-green-400"
                   : "bg-red-500/10 border-red-500/20 text-red-400"
-              }`}>
+                }`}>
                 {connected ? <Wifi size={10} /> : <WifiOff size={10} />}
                 {connected ? "LIVE" : "OFFLINE"}
               </div>

@@ -1,18 +1,7 @@
 "use client";
 
 import { CheckCircle, XCircle } from "lucide-react";
-
-interface AuditEntry {
-  id: number;
-  agent_id: string;
-  action_type: string;
-  service_name: string;
-  permission_granted: boolean;
-  cost_usd: number;
-  response_code: number | null;
-  duration_ms: number | null;
-  timestamp: string;
-}
+import type { AuditEntry } from "@/lib/types";
 
 interface Props {
   logs: AuditEntry[];

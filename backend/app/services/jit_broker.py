@@ -1,5 +1,5 @@
 import uuid
-import json
+import orjson
 from datetime import datetime, timezone
 from app.config import get_settings
 from app.utils.redis_client import get_redis
@@ -37,34 +37,19 @@ class JITBroker:
         }
 
         key = f"jit:{agent_id}:{ephemeral_token}"
-        await redis.setex(key, ttl, json.dumps(token_data))
+        await redis.setex(key, ttl, orjson.dumps(token_data).decode())
 
         return ephemeral_token
 
-    async def resolve_token(self, ephemeral_token: str) -> dict | None:
-        """Resolve token by scanning possible agent prefixes."""
+    async def resolve_token(self, agent_id: uuid.UUID, ephemeral_token: str) -> dict | None:
+        """Resolve token by direct key lookup."""
         redis = await get_redis()
-        # Try direct lookup with wildcard scan
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match=f"jit:*:{ephemeral_token}", count=100)
-            for key in keys:
-                data = await redis.get(key)
-                if data:
-                    return json.loads(data)
-            if cursor == 0:
-                break
-        return None
+        data = await redis.get(f"jit:{agent_id}:{ephemeral_token}")
+        return orjson.loads(data) if data else None
 
-    async def revoke_token(self, ephemeral_token: str):
+    async def revoke_token(self, agent_id: uuid.UUID, ephemeral_token: str):
         redis = await get_redis()
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match=f"jit:*:{ephemeral_token}", count=100)
-            for key in keys:
-                await redis.delete(key)
-            if cursor == 0:
-                break
+        await redis.delete(f"jit:{agent_id}:{ephemeral_token}")
 
     async def revoke_all_for_agent(self, agent_id: uuid.UUID):
         """Revoke all active JIT tokens for an agent (panic mode)."""

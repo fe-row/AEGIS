@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.entities import Agent, AgentStatus, BehaviorProfile, MicroWallet
 from app.schemas.schemas import AgentCreate, WalletConfig
 from app.utils.crypto import generate_identity_fingerprint
@@ -56,7 +57,9 @@ class IdentityService:
 
     @staticmethod
     async def get_agent(db: AsyncSession, agent_id: uuid.UUID) -> Agent | None:
-        result = await db.execute(select(Agent).where(Agent.id == agent_id))
+        result = await db.execute(
+            select(Agent).options(selectinload(Agent.wallet)).where(Agent.id == agent_id)
+        )
         return result.scalar_one_or_none()
 
     @staticmethod
@@ -65,7 +68,9 @@ class IdentityService:
     ) -> Agent | None:
         """Get agent only if it belongs to the given sponsor."""
         result = await db.execute(
-            select(Agent).where(Agent.id == agent_id, Agent.sponsor_id == sponsor_id)
+            select(Agent)
+            .options(selectinload(Agent.wallet))
+            .where(Agent.id == agent_id, Agent.sponsor_id == sponsor_id)
         )
         return result.scalar_one_or_none()
 

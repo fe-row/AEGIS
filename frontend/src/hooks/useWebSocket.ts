@@ -10,6 +10,8 @@ export function useWebSocket(onMessage?: (msg: WSMessage) => void) {
   const [connected, setConnected] = useState(false);
   const reconnectTimeout = useRef<NodeJS.Timeout>();
   const pingInterval = useRef<NodeJS.Timeout>();
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
     const token = localStorage.getItem("aegis_token");
@@ -33,8 +35,8 @@ export function useWebSocket(onMessage?: (msg: WSMessage) => void) {
       ws.onmessage = (event) => {
         try {
           const msg: WSMessage = JSON.parse(event.data);
-          if (msg.event !== "pong" && onMessage) {
-            onMessage(msg);
+          if (msg.event !== "pong" && onMessageRef.current) {
+            onMessageRef.current(msg);
           }
         } catch {
           // Ignore parse errors
@@ -56,7 +58,7 @@ export function useWebSocket(onMessage?: (msg: WSMessage) => void) {
     } catch {
       reconnectTimeout.current = setTimeout(connect, 5000);
     }
-  }, [onMessage]);
+  }, []);
 
   useEffect(() => {
     connect();

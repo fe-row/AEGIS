@@ -28,8 +28,8 @@ export default function LoginPage() {
         await login(email, password);
       }
       router.push("/dashboard");
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -54,17 +54,15 @@ export default function LoginPage() {
           <div className="flex mb-6 bg-gray-800 rounded-lg p-1">
             <button
               onClick={() => setIsLogin(true)}
-              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
-                isLogin ? "bg-aegis-600 text-white" : "text-gray-400 hover:text-gray-200"
-              }`}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${isLogin ? "bg-aegis-600 text-white" : "text-gray-400 hover:text-gray-200"
+                }`}
             >
               Sign In
             </button>
             <button
               onClick={() => setIsLogin(false)}
-              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
-                !isLogin ? "bg-aegis-600 text-white" : "text-gray-400 hover:text-gray-200"
-              }`}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${!isLogin ? "bg-aegis-600 text-white" : "text-gray-400 hover:text-gray-200"
+                }`}
             >
               Register
             </button>

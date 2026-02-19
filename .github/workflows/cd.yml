@@ -1,0 +1,180 @@
+name: AEGIS CD — Deploy
+
+on:
+  workflow_run:
+    workflows: ["AEGIS CI/CD"]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/aegis
+
+jobs:
+  # ── Build & Push Docker Images ──
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to Staging ──
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Staging (Helm)
+        env:
+          KUBECONFIG_DATA: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          helm upgrade --install aegis ./helm/aegis \
+            --namespace aegis-staging \
+            --create-namespace \
+            --set backend.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set backend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend \
+            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend \
+            --values ./helm/aegis/values-staging.yaml \
+            --wait --timeout 5m
+
+          rm -f /tmp/kubeconfig
+
+      - name: Verify Staging Health
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Staging is healthy"
+              exit 0
+            fi
+            echo "Waiting for staging... (attempt $i, status: $STATUS)"
+            sleep 10
+          done
+          echo "❌ Staging health check failed"
+          exit 1
+
+  # ── Deploy to Production (manual approval) ──
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production  # Requires manual approval in GitHub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Production (Helm)
+        env:
+          KUBECONFIG_DATA: ${{ secrets.PRODUCTION_KUBECONFIG }}
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          helm upgrade --install aegis ./helm/aegis \
+            --namespace aegis-production \
+            --create-namespace \
+            --set backend.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set backend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend \
+            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend \
+            --values ./helm/aegis/values-production.yaml \
+            --wait --timeout 5m
+
+          rm -f /tmp/kubeconfig
+
+      - name: Verify Production Health
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PRODUCTION_URL/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Production is healthy"
+              exit 0
+            fi
+            echo "Waiting for production... (attempt $i, status: $STATUS)"
+            sleep 10
+          done
+          echo "❌ Production health check failed"
+          exit 1
+
+  # ── Rollback on Failure ──
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure()
+    environment: production
+
+    steps:
+      - name: Rollback Production
+        env:
+          KUBECONFIG_DATA: ${{ secrets.PRODUCTION_KUBECONFIG }}
+        run: |
+          echo "$KUBECONFIG_DATA" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          echo "⚠️ Rolling back production deployment..."
+          helm rollback aegis 0 --namespace aegis-production --wait --timeout 5m
+
+          rm -f /tmp/kubeconfig
+          echo "✅ Rollback complete"

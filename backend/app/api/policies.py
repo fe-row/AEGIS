@@ -7,6 +7,7 @@ from app.models.entities import User, HITLRequest, HITLStatus
 from app.schemas.schemas import HITLDecision, HITLOut
 from app.services.hitl_gateway import HITLGateway
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
 
 router = APIRouter(prefix="/policies", tags=["Policies & HITL"])
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/policies", tags=["Policies & HITL"])
 @router.get("/hitl/pending", response_model=list[HITLOut])
 async def list_pending_hitl(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("policies:read")),
 ):
     return await HITLGateway.list_pending(db, user.id)
 
@@ -24,7 +25,7 @@ async def decide_hitl(
     request_id: uuid.UUID,
     data: HITLDecision,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("hitl:decide")),
 ):
     result = await HITLGateway.decide(db, request_id, user.id, data.approved, data.note)
     if not result:

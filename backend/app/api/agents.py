@@ -13,6 +13,7 @@ from app.services.audit_service import AuditService
 from app.utils.crypto import encrypt_secret
 from app.utils.cache import invalidate_cached_permission
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/agents", tags=["Agents"])
 async def create_agent(
     data: AgentCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:write")),
 ):
     agent = await IdentityService.register_agent(db, user.id, data)
     return agent
@@ -30,7 +31,7 @@ async def create_agent(
 @router.get("/", response_model=list[AgentOut])
 async def list_agents(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:read")),
 ):
     return await IdentityService.list_agents(db, user.id)
 
@@ -39,7 +40,7 @@ async def list_agents(
 async def get_agent(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:read")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -74,7 +75,7 @@ async def get_agent(
 async def suspend_agent(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -87,7 +88,7 @@ async def suspend_agent(
 async def activate_agent(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -103,7 +104,7 @@ async def add_permission(
     agent_id: uuid.UUID,
     data: PermissionCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -131,7 +132,7 @@ async def add_permission(
 async def list_permissions(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:read")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -148,7 +149,7 @@ async def delete_permission(
     agent_id: uuid.UUID,
     perm_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("agents:delete")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:
@@ -176,7 +177,7 @@ async def store_secret(
     agent_id: uuid.UUID,
     data: SecretStore,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("secrets:write")),
 ):
     agent = await IdentityService.get_agent(db, agent_id)
     if not agent or agent.sponsor_id != user.id:

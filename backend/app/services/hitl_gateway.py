@@ -1,11 +1,11 @@
 import uuid
-import json
 from datetime import datetime, timezone, timedelta
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.entities import HITLRequest, HITLStatus
 from app.config import get_settings
+from app.utils.http_pool import get_http_client
+from app.services.alerting import AlertService
 
 settings = get_settings()
 
@@ -49,7 +49,7 @@ class HITLGateway:
         user_id: uuid.UUID,
         approved: bool,
         note: str = "",
-    ) -> HITLRequest:
+    ) -> HITLRequest | None:
         result = await db.execute(
             select(HITLRequest).where(HITLRequest.id == request_id)
         )
@@ -98,7 +98,6 @@ class HITLGateway:
             )
         }
 
-        from app.utils.http_pool import get_http_client
         try:
             client = await get_http_client()
         except Exception:
@@ -118,5 +117,21 @@ class HITLGateway:
             }
             try:
                 await client.post(settings.TEAMS_WEBHOOK_URL, json=teams_msg)
+            except Exception:
+                pass
+
+        # PagerDuty / OpsGenie alert for critical approvals
+        if req.estimated_cost_usd > 10.0:
+            try:
+                await AlertService.send_warning(
+                    f"HITL approval required: {req.action_description} "
+                    f"(est. ${req.estimated_cost_usd:.2f})",
+                    source="hitl-gateway",
+                    details={
+                        "agent_id": str(req.agent_id),
+                        "request_id": str(req.id),
+                        "estimated_cost": req.estimated_cost_usd,
+                    },
+                )
             except Exception:
                 pass

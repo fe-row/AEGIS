@@ -88,3 +88,27 @@ export interface WSMessage {
   event: string;
   data: Record<string, any>;
 }
+
+export interface ProxyRequest {
+  agent_id: string;
+  service_name: string;
+  action: string;
+  target_url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  prompt?: string;
+  model?: string;
+  estimated_cost_usd?: number;
+}
+
+export interface ProxyResponse {
+  request_id: string;
+  status: "executed" | "blocked" | "hitl_pending";
+  response_code?: number;
+  response_body?: unknown;
+  cost_charged_usd: number;
+  policy_result?: Record<string, unknown>;
+  message: string;
+  duration_ms?: number;
+}

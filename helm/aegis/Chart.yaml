@@ -1,0 +1,14 @@
+apiVersion: v2
+name: aegis
+description: AEGIS — Agentic IAM Platform for AI Agents
+type: application
+version: 1.0.0
+appVersion: "5.0.0"
+keywords:
+  - ai
+  - agents
+  - iam
+  - security
+  - governance
+maintainers:
+  - name: AEGIS Team

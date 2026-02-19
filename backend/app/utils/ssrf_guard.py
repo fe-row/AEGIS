@@ -41,28 +41,31 @@ def _check_ip(ip_str: str) -> bool:
         return False  # Not an IP address — handled by DNS check in caller
 
 
-async def validate_url_async(url: str) -> tuple[bool, str]:
-    """Async SSRF validation — safe for event loop."""
+async def validate_url_async(url: str) -> tuple[bool, str, list[str]]:
+    """Async SSRF validation — safe for event loop.
+    Returns (is_safe, reason, resolved_ips).
+    The caller should pin connections to resolved_ips to prevent DNS rebinding."""
+    resolved_ips: list[str] = []
     try:
         parsed = urllib.parse.urlparse(url)
     except Exception:
-        return False, "Malformed URL"
+        return False, "Malformed URL", []
 
     if parsed.scheme not in ("http", "https"):
-        return False, f"Blocked scheme: {parsed.scheme}"
+        return False, f"Blocked scheme: {parsed.scheme}", []
 
     hostname = parsed.hostname
     if not hostname:
-        return False, "No hostname"
+        return False, "No hostname", []
 
     if hostname.lower() in BLOCKED_HOSTNAMES:
-        return False, f"Blocked hostname: {hostname}"
+        return False, f"Blocked hostname: {hostname}", []
 
     # Check if it's a raw IP
     try:
         if _check_ip(hostname):
-            return False, f"Blocked IP: {hostname}"
-        return True, "OK"
+            return False, f"Blocked IP: {hostname}", []
+        return True, "OK", [hostname]
     except ValueError:
         pass
 
@@ -77,13 +80,14 @@ async def validate_url_async(url: str) -> tuple[bool, str]:
             ip_str = sockaddr[0]
             if _check_ip(ip_str):
                 logger.warning("ssrf_blocked", url=url, resolved_ip=ip_str)
-                return False, f"Resolved to blocked IP: {ip_str}"
+                return False, f"Resolved to blocked IP: {ip_str}", []
+            resolved_ips.append(ip_str)
     except socket.gaierror:
-        return False, f"DNS failed: {hostname}"
+        return False, f"DNS failed: {hostname}", []
     except Exception as e:
-        return False, f"Resolution error: {type(e).__name__}"
+        return False, f"Resolution error: {type(e).__name__}", []
 
-    return True, "OK"
+    return True, "OK", resolved_ips
 
 
 def validate_url_sync(url: str) -> tuple[bool, str]:

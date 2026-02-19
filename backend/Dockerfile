@@ -18,14 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl \
     && groupadd -r aegis && useradd -r -g aegis aegis
 
 COPY --from=builder /install /usr/local
-COPY . .
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+COPY . .
 
 USER aegis
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

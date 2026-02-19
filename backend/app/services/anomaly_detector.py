@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-import json
+import orjson
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.entities import BehaviorProfile
@@ -20,20 +20,23 @@ class AnomalyDetector:
         redis = await get_redis()
         now = datetime.now(timezone.utc)
         key = f"behavior:{agent_id}:actions"
-        entry = json.dumps({
+        entry = orjson.dumps({
             "service": service_name,
             "action": action,
             "hour": now.hour,
             "ts": now.timestamp(),
             "cost": cost,
-        })
-        await redis.lpush(key, entry)
-        await redis.ltrim(key, 0, 999)
+        }).decode()
 
         # Update hourly counter
         hour_key = f"behavior:{agent_id}:hour:{now.hour}"
-        await redis.incr(hour_key)
-        await redis.expire(hour_key, 7200)
+
+        pipe = redis.pipeline()
+        pipe.lpush(key, entry)
+        pipe.ltrim(key, 0, 999)
+        pipe.incr(hour_key)
+        pipe.expire(hour_key, 7200)
+        await pipe.execute()
 
     async def detect_anomaly(
         self,
@@ -91,7 +94,7 @@ class AnomalyDetector:
         if not raw:
             return
 
-        actions = [json.loads(r) for r in raw]
+        actions = [orjson.loads(r) for r in raw]
 
         services = list(set(a["service"] for a in actions))
         hours = {}
@@ -111,7 +114,15 @@ class AnomalyDetector:
             profile.typical_hours = hours
             profile.avg_requests_per_hour = avg_rpm
             profile.last_updated = datetime.now(timezone.utc)
-            await db.commit()
+        else:
+            profile = BehaviorProfile(
+                agent_id=agent_id,
+                typical_services=services,
+                typical_hours=hours,
+                avg_requests_per_hour=avg_rpm,
+            )
+            db.add(profile)
+        await db.commit()
 
 
 anomaly_detector = AnomalyDetector()

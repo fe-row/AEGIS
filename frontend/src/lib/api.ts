@@ -1,4 +1,4 @@
-import type { DashboardStats, Agent, Wallet, Permission, AuditEntry, HITLItem, User } from "./types";
+import type { DashboardStats, Agent, Wallet, Permission, AuditEntry, HITLItem, User, ProxyRequest, ProxyResponse } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API = `${API_BASE}/api/v1`;
@@ -30,7 +30,8 @@ export async function logout() {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`,
       },
-    }).catch(() => {});
+      credentials: "include",  // Include cookies for logout
+    }).catch(() => { });
   }
   localStorage.removeItem("aegis_token");
   localStorage.removeItem("aegis_refresh_token");
@@ -46,7 +47,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...(options.headers as Record<string, string> || {}),
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    return fetch(`${API}${path}`, { ...options, headers });
+    return fetch(`${API}${path}`, { ...options, headers, credentials: "include" });
   };
 
   let res = await doRequest(getToken());
@@ -59,6 +60,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         const refreshRes = await fetch(`${API}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",  // Send refresh token cookie
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
 
@@ -139,7 +141,7 @@ export async function getPermissions(agentId: string) {
   return request<Permission[]>(`/agents/${agentId}/permissions`);
 }
 
-export async function addPermission(agentId: string, data: any) {
+export async function addPermission(agentId: string, data: Omit<Permission, 'id' | 'is_active'>) {
   return request<Permission>(`/agents/${agentId}/permissions`, {
     method: "POST", body: JSON.stringify(data),
   });
@@ -185,8 +187,8 @@ export async function freezeWallet(agentId: string) {
 
 // ── Proxy ──
 
-export async function executeProxy(data: any) {
-  return request<any>("/proxy/execute", { method: "POST", body: JSON.stringify(data) });
+export async function executeProxy(data: ProxyRequest) {
+  return request<ProxyResponse>("/proxy/execute", { method: "POST", body: JSON.stringify(data) });
 }
 
 // ── Audit ──

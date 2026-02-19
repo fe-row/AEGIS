@@ -1,5 +1,4 @@
 import uuid
-import json
 from datetime import datetime, timezone
 from app.config import get_settings
 from app.utils.redis_client import get_redis

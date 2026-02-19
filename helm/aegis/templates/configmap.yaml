@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aegis.fullname" . }}-config
+  labels:
+    {{- include "aegis.labels" . | nindent 4 }}
+data:
+  OPA_URL: "http://{{ include "aegis.fullname" . }}-opa:8181"
+  CORS_ORIGINS: "https://{{ .Values.global.domain }}"
+  DOMAIN: {{ .Values.global.domain | quote }}

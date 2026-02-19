@@ -4,12 +4,14 @@ safe permission cache, proper snapshot handling.
 """
 import uuid
 import time
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.database import get_db
 from app.models.entities import (
     User, Agent, AgentPermission, AgentStatus, SecretVault, ActionType,
+    AuditLog as AL,
 )
 from app.schemas.schemas import ProxyRequest, ProxyResponse
 from app.services.policy_engine import policy_engine
@@ -24,6 +26,7 @@ from app.services.trust_engine import TrustEngine
 from app.services.rollback_service import RollbackService
 from app.services.identity_service import IdentityService
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
 from app.api.websocket import ws_manager
 from app.utils.metrics import PROXY_EXECUTIONS, PROXY_COST
 from app.utils.ssrf_guard import validate_url_async
@@ -52,7 +55,7 @@ async def execute_proxy(
     data: ProxyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("proxy:execute")),
 ):
     t0 = time.monotonic()
     rid = uuid.uuid4()
@@ -71,8 +74,8 @@ async def execute_proxy(
             raise HTTPException(status_code=409, detail="Duplicate request in progress")
 
     try:
-        # ── 1. SSRF (async DNS) ──
-        url_ok, url_reason = await validate_url_async(data.target_url)
+        # ── 1. SSRF (async DNS — returns resolved IPs to prevent rebinding) ──
+        url_ok, url_reason, resolved_ips = await validate_url_async(data.target_url)
         if not url_ok:
             await AuditService.log(
                 data.agent_id, user.id, at, data.service_name, False,
@@ -106,7 +109,7 @@ async def execute_proxy(
 
         # ── 4. Anomaly Detection ──
         anomaly = await anomaly_detector.detect_anomaly(
-            db, agent.id, data.service_name, data.action, data.estimated_cost_usd,
+            db, agent.id, data.service_name, data.action,
         )
         if anomaly["is_anomalous"]:
             await TrustEngine.penalize_anomaly(db, agent.id)
@@ -229,7 +232,7 @@ async def execute_proxy(
             eph_token = await jit_broker.mint_ephemeral_token(
                 agent.id, data.service_name, vault.encrypted_secret,
             )
-            resolved = await jit_broker.resolve_token(eph_token)
+            resolved = await jit_broker.resolve_token(agent.id, eph_token)
             if resolved:
                 headers["Authorization"] = f"Bearer {resolved['real_secret']}"
 
@@ -251,11 +254,13 @@ async def execute_proxy(
                 response_body = resp.text[:5000]
         except Exception as e:
             response_code = 504 if "timeout" in str(e).lower() else 502
-            response_body = {"error": type(e).__name__}
+            # SECURITY FIX: Sanitize error — don't leak internal class names
+            logger.warning("proxy_upstream_error", error=str(e), url=data.target_url, **ctx)
+            response_body = {"error": "upstream_error", "message": "Request to upstream service failed"}
 
         # ── 12. Revoke JIT ──
         if eph_token:
-            await jit_broker.revoke_token(eph_token)
+            await jit_broker.revoke_token(agent.id, eph_token)
 
         # ── 13. Charge wallet ──
         cost = data.estimated_cost_usd
@@ -265,15 +270,14 @@ async def execute_proxy(
                 await circuit_breaker.record_spend(agent.id, cost)
                 PROXY_COST.inc(cost)
 
-        # ── 14. Behavior ──
-        await anomaly_detector.record_action(agent.id, data.service_name, data.action, cost)
-
-        # ── 15. Trust ──
+        # ── 14–16. Behavior + Trust + Counter (parallel) ──
+        post_coros = [
+            anomaly_detector.record_action(agent.id, data.service_name, data.action, cost),
+            increment_hourly_counter(agent.id, data.service_name),
+        ]
         if response_code and 200 <= response_code < 400:
-            await TrustEngine.reward_success(db, agent.id)
-
-        # ── 16. Increment hourly counter ──
-        await increment_hourly_counter(agent.id, data.service_name)
+            post_coros.append(TrustEngine.reward_success(db, agent.id))
+        await asyncio.gather(*post_coros)
 
         duration_ms = int((time.monotonic() - t0) * 1000)
 
@@ -288,7 +292,6 @@ async def execute_proxy(
         # ── 18. Snapshot ──
         if data.method in ("POST", "PUT", "PATCH", "DELETE"):
             try:
-                from app.models.entities import AuditLog as AL
                 latest_q = await db.execute(
                     select(func.max(AL.id)).where(AL.agent_id == agent.id)
                 )

@@ -2,7 +2,7 @@
 Redis-based idempotency key management.
 Prevents duplicate proxy executions using X-Idempotency-Key header.
 """
-import json
+import orjson
 import uuid
 from app.utils.redis_client import get_redis
 
@@ -25,14 +25,14 @@ async def check_idempotency(key: str) -> dict | None:
     redis = await get_redis()
     cached = await redis.get(f"{IDEM_PREFIX}{key}")
     if cached:
-        return json.loads(cached)
+        return orjson.loads(cached)
     return None
 
 
 async def store_idempotency(key: str, response: dict, ttl: int = IDEM_TTL):
     """Store a response for this idempotency key."""
     redis = await get_redis()
-    await redis.setex(f"{IDEM_PREFIX}{key}", ttl, json.dumps(response, default=str))
+    await redis.setex(f"{IDEM_PREFIX}{key}", ttl, orjson.dumps(response).decode())
 
 
 async def lock_idempotency(key: str, ttl: int = 30) -> str | None:

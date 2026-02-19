@@ -7,6 +7,7 @@ from app.models.entities import User
 from app.schemas.schemas import AuditLogOut
 from app.services.audit_service import AuditService
 from app.middleware.auth_middleware import get_current_user
+from app.services.rbac import require_permission
 
 router = APIRouter(prefix="/audit", tags=["Audit"])
 
@@ -19,7 +20,7 @@ async def get_audit_logs(
     limit: int = Query(default=100, le=1000),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("audit:read")),
 ):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     logs = await AuditService.query(
@@ -33,6 +34,6 @@ async def get_audit_logs(
 async def verify_chain(
     limit: int = Query(default=1000, le=10000),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("audit:read")),
 ):
     return await AuditService.verify_chain_integrity(db, limit=limit)

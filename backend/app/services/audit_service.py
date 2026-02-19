@@ -6,6 +6,7 @@ import uuid
 import csv
 import io
 import json
+import orjson
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -59,7 +60,7 @@ class AuditService:
         }
         try:
             redis = await get_redis()
-            await redis.rpush(BUFFER_KEY, json.dumps(entry, default=str))
+            await redis.rpush(BUFFER_KEY, orjson.dumps(entry).decode())
         except Exception as e:
             logger.error("audit_buffer_push_failed", error=str(e))
         return entry
@@ -100,7 +101,7 @@ class AuditService:
                 entries = []
                 for raw in raw_entries:
                     try:
-                        entries.append(json.loads(raw))
+                        entries.append(orjson.loads(raw))
                     except json.JSONDecodeError:
                         logger.warning("audit_skip_malformed_entry")
                         continue

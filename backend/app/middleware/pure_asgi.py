@@ -11,6 +11,7 @@ from starlette.responses import Response
 from app.utils.redis_client import get_redis
 from app.config import get_settings
 from app.logging_config import get_logger
+from app.utils.metrics import REQUEST_COUNT, REQUEST_LATENCY
 
 settings = get_settings()
 logger = get_logger("middleware")
@@ -109,7 +110,6 @@ class AegisMiddlewareStack:
             # Record metrics (skip health/metrics paths)
             if path not in self.SKIP_PATHS:
                 duration = time.monotonic() - start_time
-                from app.utils.metrics import REQUEST_COUNT, REQUEST_LATENCY
                 parts = path.split("/")
                 norm = "/".join(
                     "{id}" if (len(p) == 36 and p.count("-") == 4) else p
@@ -126,7 +126,12 @@ class RateLimiterASGI:
     """
     Pure ASGI rate limiter — FIX: uses INCR+EXPIRE (O(1))
     instead of sorted sets (O(log n) + memory leak).
+    Falls back to in-memory counter if Redis is unavailable.
     """
+
+    # In-memory fallback when Redis is down
+    _fallback_counters: dict[str, int] = {}
+    _fallback_window: int = 0
 
     def __init__(self, app: ASGIApp):
         self.app = app
@@ -175,7 +180,26 @@ class RateLimiterASGI:
                 return
 
         except Exception as e:
-            # Fail open
-            logger.warning("rate_limiter_error", error=str(e))
+            # SECURITY FIX: Fall back to in-memory rate limiting instead of fail-open
+            logger.error("rate_limiter_redis_down", error=str(e))
+            current_window = int(time.time()) // 60
+            if current_window != RateLimiterASGI._fallback_window:
+                RateLimiterASGI._fallback_counters.clear()
+                RateLimiterASGI._fallback_window = current_window
+
+            fallback_key = f"{identity}:{path}"
+            RateLimiterASGI._fallback_counters[fallback_key] = (
+                RateLimiterASGI._fallback_counters.get(fallback_key, 0) + 1
+            )
+            # Conservative limit when Redis is down
+            if RateLimiterASGI._fallback_counters[fallback_key] > min(limit, 30):
+                response = Response(
+                    content='{"code":"RATE_LIMITED","message":"Rate limit exceeded (degraded mode)"}',
+                    status_code=429,
+                    media_type="application/json",
+                    headers={"Retry-After": "60"},
+                )
+                await response(scope, receive, send)
+                return
 
         await self.app(scope, receive, send)

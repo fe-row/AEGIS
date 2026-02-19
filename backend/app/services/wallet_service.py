@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.models.entities import MicroWallet, WalletTransaction, ActionType
 
 
@@ -110,11 +110,12 @@ class WalletService:
             return 0.0
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         result = await db.execute(
-            select(WalletTransaction).where(
+            select(
+                func.coalesce(func.sum(func.abs(WalletTransaction.amount_usd)), 0)
+            ).where(
                 WalletTransaction.wallet_id == wallet.id,
                 WalletTransaction.timestamp >= cutoff,
                 WalletTransaction.amount_usd < 0,
             )
         )
-        txs = result.scalars().all()
-        return sum(abs(tx.amount_usd) for tx in txs)
+        return float(result.scalar())

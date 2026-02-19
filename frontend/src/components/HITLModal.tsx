@@ -3,16 +3,7 @@
 import { useState } from "react";
 import { ShieldAlert, CheckCircle, XCircle, X } from "lucide-react";
 import { decideHITL } from "@/lib/api";
-
-interface HITLItem {
-  id: string;
-  agent_id: string;
-  action_description: string;
-  estimated_cost_usd: number;
-  status: string;
-  created_at: string;
-  expires_at: string;
-}
+import type { HITLItem } from "@/lib/types";
 
 interface Props {
   items: HITLItem[];
@@ -22,18 +13,18 @@ interface Props {
 
 export default function HITLModal({ items, onDecided, onClose }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
-  const [note, setNote] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   const handleDecide = async (id: string, approved: boolean) => {
     setLoading(id);
     try {
-      await decideHITL(id, approved, note);
+      await decideHITL(id, approved, notes[id] || "");
       onDecided();
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(null);
-      setNote("");
+      setNotes((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
@@ -79,8 +70,8 @@ export default function HITLModal({ items, onDecided, onClose }: Props) {
               <input
                 type="text"
                 placeholder="Optional note..."
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
+                value={notes[item.id] || ""}
+                onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs
                          text-gray-300 mb-3 focus:outline-none focus:border-aegis-500"
               />

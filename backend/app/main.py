@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
-VERSION = "4.0.0"
+VERSION = "5.0.0"
 
 from app.config import get_settings
 from app.logging_config import setup_logging, get_logger
@@ -15,6 +15,7 @@ from app.middleware.pure_asgi import AegisMiddlewareStack, RateLimiterASGI
 from app.services.policy_engine import policy_engine
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.api import auth, agents, wallets, proxy, audit, dashboard, policies
+from app.api.sso import router as sso_router
 from app.api.websocket import router as ws_router
 
 settings = get_settings()
@@ -34,6 +35,10 @@ async def lifespan(app: FastAPI):
     await redis.ping()
     logger.info("dependencies_ready")
 
+    # Initialize OpenTelemetry tracing
+    from app.utils.telemetry import setup_telemetry
+    setup_telemetry()
+
     start_scheduler()
     yield
 
@@ -49,6 +54,10 @@ async def lifespan(app: FastAPI):
             logger.info("shutdown_audit_flushed", count=flushed)
     except Exception as e:
         logger.error("shutdown_flush_error", error=str(e))
+
+    # Shutdown telemetry
+    from app.utils.telemetry import shutdown_telemetry
+    shutdown_telemetry()
 
     await policy_engine.close()
     await close_http_client()
@@ -71,8 +80,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*", "X-Request-ID", "X-Idempotency-Key", "X-API-Key"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Idempotency-Key", "X-API-Key"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -85,6 +94,7 @@ prefix = settings.API_V1_PREFIX
 for r in [auth.router, agents.router, wallets.router, proxy.router,
           audit.router, dashboard.router, policies.router]:
     app.include_router(r, prefix=prefix)
+app.include_router(sso_router, prefix=prefix)
 app.include_router(ws_router)
 
 
@@ -96,11 +106,8 @@ async def health():
         redis = await get_redis()
         await redis.ping()
         checks["redis"] = "ok"
-        buf = await redis.llen("audit:buffer")
-        proc = await redis.llen("audit:processing")
-        checks["audit_queue"] = f"{buf}+{proc}"
-    except Exception as e:
-        checks["redis"] = f"err:{type(e).__name__}"
+    except Exception:
+        checks["redis"] = "err"
 
     try:
         from sqlalchemy import text
@@ -108,19 +115,20 @@ async def health():
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
-    except Exception as e:
-        checks["postgres"] = f"err:{type(e).__name__}"
+    except Exception:
+        checks["postgres"] = "err"
 
     try:
         from app.utils.http_pool import get_http_client
         client = await get_http_client()
         r = await client.get(f"{settings.OPA_URL}/health", timeout=3)
-        checks["opa"] = "ok" if r.status_code == 200 else f"status:{r.status_code}"
-    except Exception as e:
-        checks["opa"] = f"err:{type(e).__name__}"
+        checks["opa"] = "ok" if r.status_code == 200 else "err"
+    except Exception:
+        checks["opa"] = "err"
 
-    ok = all(v == "ok" for k, v in checks.items() if k not in ("audit_queue",))
-    return {"status": "healthy" if ok else "degraded", "version": VERSION, "checks": checks}
+    ok = all(v == "ok" for v in checks.values())
+    # SECURITY: Only expose pass/fail status — no internal details
+    return {"status": "healthy" if ok else "degraded", "version": VERSION}
 
 
 # Pure ASGI middleware stack (no BaseHTTPMiddleware) — AFTER routes are registered
